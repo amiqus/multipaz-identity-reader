@@ -1,0 +1,14 @@
+Amiqus Demo Verifier
+
+This product is a modified version of Multipaz Identity Reader
+(https://github.com/openwallet-foundation/multipaz-identity-reader),
+licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Modifications copyright 2026 Amiqus Resolution Limited, also licensed under
+the Apache License, Version 2.0. The modifications are listed in the
+"Amiqus changes" section of README.md, and in the git history of the
+"amiqus" branch.
+
+Multipaz and the Multipaz Identity Reader names belong to their respective
+owners. Their use here describes where this software came from and does not
+imply endorsement.

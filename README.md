@@ -1,3 +1,48 @@
+# Amiqus Demo Verifier
+
+An Android demo verifier for reading the GOV.UK Wallet digital driving licence in person
+(ISO/IEC 18013-5: QR engagement, then BLE). It's a fork of Multipaz Identity Reader. Amiqus work
+lives on the `amiqus` branch, and `main` tracks upstream. See `NOTICE`.
+
+**This is a demo, not production software.** It is signed with the public upstream dev key and uses
+GOV.UK Wallet sandbox/integration certificates and synthetic test data only.
+
+## Amiqus changes
+
+| Change | Where | Why |
+| --- | --- | --- |
+| Reader auth is signed with `ES256` (COSE −7), not `ESP256` (−9) | `libfrontend/…/ReaderQuery.kt` | GOV.UK Wallet rejects RFC 9864 fully-specified algorithms with `unsupportedReaderAuthAlgorithm` |
+| Reader `x5chain` leaves out a self-signed root at the end of the imported chain. The full chain is kept for local validation. | `libfrontend/…/ReaderQuery.kt` | GOV.UK Wallet rejects a reader chain that includes the root with `untrustedReaderCertificate` |
+| Bundled trusted issuers, loaded on first launch when there's no backend: the GOV.UK sandbox document signer (a stopgap until GDS sends the sandbox IACA), and DVLA's non-prod `mDL IACA Root` for the 2026-12-09 event | `BundledIssuers.kt`, `App.kt`, `composeResources/files/trusted-issuers/` | No manual issuer import, and no reliance on venue Wi-Fi. Bump `BUNDLED_ISSUERS_VERSION` whenever the list changes. Before the event, re-check DVLA's `mdoc_iacas_uri` (`https://credential-issuer-nonprod.dvla.gov.uk/gov-uk/iacas`) and compare the fingerprint `3885aa9c…ce62a9`. |
+| The issuer certificate chain of every received document is logged (public certificates only) | `ShowResultsScreen.kt` | Identifies a missing issuer root, e.g. DVLA's at the event |
+| No backend by default, so the app never contacts `identityreader.multipaz.org` | `composeApp/build.gradle.kts`, `ReaderBackendConfig.kt`, `App.kt`, `StartScreen.kt`, `SettingsDialog.kt`, `ReaderIdentityScreen.kt` | We use our own GOV.UK-issued reader certificate, not Multipaz's CA. No trust list or Google sign-in. The settings menu (profile icon) still works, without the Google account card. |
+| Default reader auth is **custom key** (imported PKCS#12). With none imported, requests go out unauthenticated and a warning is logged. | `libfrontend/…/SettingsModel.kt`, `ReaderQuery.kt` | Uses the Amiqus reader certificate |
+| App name "Amiqus Demo Verifier", application ID `com.amiqus.demoverifier` | `strings.xml` (×2), `RequestBluetoothPermission.kt`, `composeApp/build.gradle.kts` | Distinguishes it from the upstream app. Apache 2.0 grants no trademark rights. |
+| `NOTICE` file and this section | repo root | Apache 2.0 §4(b): state that files were changed |
+
+The Kotlin package (`org.multipaz.identityreader`) is unchanged, to keep merges from upstream simple.
+**Still to do:** replace the launcher icon (`composeApp/src/androidMain/res/mipmap-*`,
+`composeResources/drawable/app_icon.webp`) with an Amiqus icon.
+
+To re-enable the Multipaz backend features, build with `IDENTITY_READER_BACKEND_URL` set.
+
+### Using it
+
+1. Build and install: `./gradlew :composeApp:installDebug` (phone connected over USB)
+2. Profile icon → **Reader identity** → *Use reader certificate from PKCS#12 file* → choose
+   `reader.p12` (the full chain including the root is fine; see the `amiqus-reader-ca` repo)
+3. Choose a request, tap *Scan QR*, and scan the GOV.UK Wallet holder's proximity-share QR code
+
+Trusted issuers are bundled. Add any others (e.g. DVLA's integration root) under profile icon →
+**Trusted issuers** → *Import Certificate*, or add them to `BundledIssuers.kt`.
+
+**Don't bundle `reader.p12` in the APK.** Anyone with the APK could extract the key and sign requests
+as Amiqus. Each device should import its own certificate, and later generate its key in Android Keystore.
+
+---
+
+*Upstream README follows.*
+
 This is a Compose Multiplatform project targeting Android, iOS.
 
 This is a ISO/IEC 18013-5:2021 proximity reader for requesting credentials built using
