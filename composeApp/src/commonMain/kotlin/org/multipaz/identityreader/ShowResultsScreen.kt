@@ -56,8 +56,11 @@ import org.multipaz.documenttype.knowntypes.PhotoID
 import org.multipaz.mdoc.response.DeviceResponse
 import org.multipaz.trustmanagement.TrustManager
 import org.multipaz.trustmanagement.TrustPoint
+import org.multipaz.util.Logger
 import kotlin.time.Clock
 import kotlin.time.Instant
+
+private const val TAG = "ShowResultsScreen"
 
 @Composable
 fun ShowResultsScreen(
@@ -169,6 +172,9 @@ private suspend fun parseResponse(
 
     val readerDocuments = mutableListOf<ParsedMdocDocument>()
     for (document in deviceResponse.documents) {
+        // Public certificates: logged so a missing issuer root (IACA) can be identified and added.
+        Logger.i(TAG, "Issuer certificate chain for ${document.docType}:\n" +
+                document.issuerCertChain.certificates.joinToString("\n") { it.toPem() })
         val trustResult = issuerTrustManager.verify(document.issuerCertChain.certificates, now)
         require(trustResult.isTrusted) { "Document issuer isn't trusted" }
 

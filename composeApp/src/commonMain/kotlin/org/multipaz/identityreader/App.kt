@@ -239,6 +239,15 @@ class App(
         // Also do this every 4 hours to make sure we pick up updates even if the app keeps running.
         //
         LaunchedEffect(Unit) {
+            if (!isReaderBackendEnabled) {
+                Logger.i(TAG, "No reader backend configured; using bundled trusted issuers")
+                try {
+                    loadBundledIssuers(builtInTrustManager, settingsModel)
+                } catch (e: Throwable) {
+                    Logger.e(TAG, "Error loading bundled trusted issuers", e)
+                }
+                return@LaunchedEffect
+            }
             coroutineScope.launch {
                 while (true) {
                     ensureReaderKeys()

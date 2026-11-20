@@ -277,7 +277,8 @@ fun StartScreen(
                     // Only opportunistically try to sign in the user except
                     //  - they explicitly signed out
                     //  - they dismissed the dialog for an opportunistic sign-in attempt
-                    if (settingsModel.signedIn.value == null && !settingsModel.explicitlySignedOut.value) {
+                    if (isReaderBackendEnabled &&
+                        settingsModel.signedIn.value == null && !settingsModel.explicitlySignedOut.value) {
                         coroutineScope.launch {
                             try {
                                 signIn(

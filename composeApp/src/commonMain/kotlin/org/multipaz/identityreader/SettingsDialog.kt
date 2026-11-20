@@ -119,7 +119,8 @@ fun SettingsDialog(
                 modifier = Modifier.padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp, alignment = Alignment.Top)
             ) {
-                Card(
+                // Google sign-in needs the reader backend, so hide the account card without one.
+                if (isReaderBackendEnabled) Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.background

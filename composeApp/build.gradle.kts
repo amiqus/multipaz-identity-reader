@@ -19,16 +19,14 @@ val projectVersionName: String by rootProject.extra
 buildConfig {
     packageName("org.multipaz.identityreader")
     buildConfigField("VERSION", projectVersionName)
-    // Use the deployed backend by default even though sign-in will only work if signed with the
-    // signing key used to sign APKs available on https://apps.multipaz.org
+    // Amiqus: no backend by default, so the app never contacts Multipaz's servers. Reader auth uses
+    // an imported PKCS#12 reader certificate instead. Set IDENTITY_READER_BACKEND_URL (and
+    // IDENTITY_READER_BACKEND_CLIENT_ID for Google sign-in) to re-enable the backend features.
     buildConfigField("IDENTITY_READER_BACKEND_URL",
-        System.getenv("IDENTITY_READER_BACKEND_URL")
-            ?: "https://identityreader.multipaz.org/"
+        System.getenv("IDENTITY_READER_BACKEND_URL") ?: ""
     )
-    // This server-side clientId works with APKs signed with the signing key in devkey.keystore
     buildConfigField("IDENTITY_READER_BACKEND_CLIENT_ID",
-        System.getenv("IDENTITY_READER_BACKEND_CLIENT_ID")
-            ?: "332546139643-p9h5vs340rbmb5c6edids3euclfm4i41.apps.googleusercontent.com"
+        System.getenv("IDENTITY_READER_BACKEND_CLIENT_ID") ?: ""
     )
     buildConfigField("IDENTITY_READER_UPDATE_URL",
         System.getenv("IDENTITY_READER_UPDATE_URL") ?: ""

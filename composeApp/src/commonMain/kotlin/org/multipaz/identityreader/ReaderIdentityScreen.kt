@@ -228,7 +228,7 @@ the request is from
                         )
                     }
                 }
-                entries.add {
+                if (isReaderBackendEnabled) entries.add {
                     Row(
                         modifier = Modifier.clickable {
                             settingsModel.readerAuthMethod.value = ReaderAuthMethod.STANDARD_READER_AUTH
