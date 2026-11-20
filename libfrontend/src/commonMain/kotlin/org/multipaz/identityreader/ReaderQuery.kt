@@ -3,6 +3,7 @@ package org.multipaz.identityreader
 import kotlinx.io.bytestring.ByteString
 import org.multipaz.cbor.Cbor
 import org.multipaz.crypto.AsymmetricKey
+import org.multipaz.crypto.X509CertChain
 import org.multipaz.documenttype.knowntypes.DrivingLicense
 import org.multipaz.documenttype.knowntypes.PhotoID
 import org.multipaz.mdoc.engagement.Capability
@@ -20,6 +21,14 @@ private const val TAG = "ReaderQuery"
 // specified ones (e.g. ESP256, -9) that Multipaz uses by default. The signature bytes are the same.
 private fun AsymmetricKey.X509CertifiedSecureAreaBased.withClassicAlgorithm() =
     copy(algorithm = publicKey.curve.defaultSigningAlgorithm)
+
+// The wallet already holds the trust anchor, and GOV.UK Wallet rejects a reader x5chain that
+// includes it (untrustedReaderCertificate). Send the chain up to, but not including, any
+// self-signed root at the end. The imported chain itself is kept whole for local validation.
+private fun X509CertChain.withoutTrustAnchor(): X509CertChain {
+    val trimmed = certificates.dropLastWhile { it.subject == it.issuer }
+    return if (trimmed.isEmpty()) this else X509CertChain(trimmed)
+}
 
 enum class ReaderQuery(
     val displayName: String,
@@ -111,16 +120,25 @@ enum class ReaderQuery(
                 }
             }
             ReaderAuthMethod.CUSTOM_KEY -> {
+                val privateKey = settingsModel.customReaderAuthKey.value
+                val certChain = settingsModel.customReaderAuthCertChain.value
+                if (privateKey == null || certChain == null) {
+                    Logger.w(TAG, "No reader certificate imported, proceeding without reader authentication")
+                }
                 generateEncodedDeviceRequest(
                     query = this,
                     deviceEngagement = deviceEngagement,
                     intentToRetain = settingsModel.logTransactions.value,
                     encodedSessionTranscript = encodedSessionTranscript.toByteArray(),
-                    readerKey = AsymmetricKey.X509CertifiedExplicit(
-                        certChain = settingsModel.customReaderAuthCertChain.value!!,
-                        privateKey = settingsModel.customReaderAuthKey.value!!,
-                        algorithm = settingsModel.customReaderAuthKey.value!!.curve.defaultSigningAlgorithm,
-                    )
+                    readerKey = if (privateKey != null && certChain != null) {
+                        AsymmetricKey.X509CertifiedExplicit(
+                            certChain = certChain.withoutTrustAnchor(),
+                            privateKey = privateKey,
+                            algorithm = privateKey.curve.defaultSigningAlgorithm,
+                        )
+                    } else {
+                        null
+                    }
                 )
             }
         }

@@ -374,7 +374,7 @@ the request is from
                                         when (readerAuthMethod.value) {
                                             ReaderAuthMethod.NO_READER_AUTH -> {}
                                             ReaderAuthMethod.CUSTOM_KEY -> {
-                                                onShowCertificateChain(settingsModel.customReaderAuthCertChain.value!!)
+                                                settingsModel.customReaderAuthCertChain.value?.let(onShowCertificateChain)
                                             }
                                             ReaderAuthMethod.IDENTITY_FROM_GOOGLE_ACCOUNT -> {
                                                 coroutineScope.launch {
