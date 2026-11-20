@@ -15,6 +15,12 @@ import org.multipaz.util.Logger
 
 private const val TAG = "ReaderQuery"
 
+// Wallets implementing ISO/IEC 18013-5:2021, including GOV.UK Wallet, only accept classic COSE
+// algorithm identifiers such as ES256 (-7) for reader auth, and reject the RFC 9864 fully
+// specified ones (e.g. ESP256, -9) that Multipaz uses by default. The signature bytes are the same.
+private fun AsymmetricKey.X509CertifiedSecureAreaBased.withClassicAlgorithm() =
+    copy(algorithm = publicKey.curve.defaultSigningAlgorithm)
+
 enum class ReaderQuery(
     val displayName: String,
 ) {
@@ -67,7 +73,7 @@ enum class ReaderQuery(
                             alias = keyInfo.alias,
                             secureArea = keyInfo.let { readerBackendClient.secureArea },
                             keyInfo = readerBackendClient.secureArea.getKeyInfo(keyInfo.alias)
-                        ),
+                        ).withClassicAlgorithm(),
                         keyInfo
                     )
                 } catch (e: ReaderIdentityNotAvailableException) {
@@ -83,7 +89,7 @@ enum class ReaderQuery(
                                 alias = keyInfo.alias,
                                 secureArea = keyInfo.let { readerBackendClient.secureArea },
                                 keyInfo = readerBackendClient.secureArea.getKeyInfo(keyInfo.alias)
-                            ),
+                            ).withClassicAlgorithm(),
                             keyInfo
                         )
                     } catch (e: Throwable) {
@@ -113,6 +119,7 @@ enum class ReaderQuery(
                     readerKey = AsymmetricKey.X509CertifiedExplicit(
                         certChain = settingsModel.customReaderAuthCertChain.value!!,
                         privateKey = settingsModel.customReaderAuthKey.value!!,
+                        algorithm = settingsModel.customReaderAuthKey.value!!.curve.defaultSigningAlgorithm,
                     )
                 )
             }
