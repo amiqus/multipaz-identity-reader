@@ -142,21 +142,28 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-    signingConfigs {
-        create("devkey") {
-            storeFile = file("devkey.keystore")
-            storePassword = "devkey"
-            keyAlias = "devkey-alias"
-            keyPassword = "devkey"
+    // Amiqus: sign with the Amiqus key instead of the public upstream devkey.keystore. The keystore
+    // and its passwords live outside the repo, set as Gradle properties (e.g. in
+    // ~/.gradle/gradle.properties). Without them, debug builds use the local Android debug key and
+    // release builds are left unsigned.
+    val amiqusStoreFile = providers.gradleProperty("amiqusSigningStoreFile").orNull
+    val amiqusSigning = amiqusStoreFile?.let {
+        signingConfigs.create("amiqus") {
+            storeFile = file(it)
+            storePassword = providers.gradleProperty("amiqusSigningStorePassword").get()
+            keyAlias = providers.gradleProperty("amiqusSigningKeyAlias").get()
+            keyPassword = providers.gradleProperty("amiqusSigningKeyPassword").get()
         }
     }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("devkey")
+            signingConfig = amiqusSigning
         }
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("devkey")
+            if (amiqusSigning != null) {
+                signingConfig = amiqusSigning
+            }
         }
     }
     compileOptions {

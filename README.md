@@ -4,8 +4,8 @@ An Android demo verifier for reading the GOV.UK Wallet digital driving licence i
 (ISO/IEC 18013-5: QR engagement, then BLE). It's a fork of Multipaz Identity Reader. Amiqus work
 lives on the `amiqus` branch, and `main` tracks upstream. See `NOTICE`.
 
-**This is a demo, not production software.** It is signed with the public upstream dev key and uses
-GOV.UK Wallet sandbox/integration certificates and synthetic test data only.
+**This is a demo, not production software.** It uses GOV.UK Wallet sandbox/integration certificates
+and synthetic test data only.
 
 ## Amiqus changes
 
@@ -18,6 +18,7 @@ GOV.UK Wallet sandbox/integration certificates and synthetic test data only.
 | No backend by default, so the app never contacts `identityreader.multipaz.org` | `composeApp/build.gradle.kts`, `ReaderBackendConfig.kt`, `App.kt`, `StartScreen.kt`, `SettingsDialog.kt`, `ReaderIdentityScreen.kt` | We use our own GOV.UK-issued reader certificate, not Multipaz's CA. No trust list or Google sign-in. The settings menu (profile icon) still works, without the Google account card. |
 | Default reader auth is **custom key** (imported PKCS#12). With none imported, requests go out unauthenticated and a warning is logged. | `libfrontend/…/SettingsModel.kt`, `ReaderQuery.kt` | Uses the Amiqus reader certificate |
 | App name "Amiqus Demo Verifier", application ID `com.amiqus.demoverifier` | `strings.xml` (×2), `RequestBluetoothPermission.kt`, `composeApp/build.gradle.kts` | Distinguishes it from the upstream app. Apache 2.0 grants no trademark rights. |
+| APKs are signed with the Amiqus key from Gradle properties, not the public upstream `devkey.keystore`. Without the key set, debug builds use the local Android debug key and release builds are unsigned. | `composeApp/build.gradle.kts` | Anyone can sign an APK with the public devkey, so it could impersonate our build or update over it |
 | `NOTICE` file and this section | repo root | Apache 2.0 §4(b): state that files were changed |
 
 The Kotlin package (`org.multipaz.identityreader`) is unchanged, to keep merges from upstream simple.
@@ -25,6 +26,20 @@ The Kotlin package (`org.multipaz.identityreader`) is unchanged, to keep merges 
 `composeResources/drawable/app_icon.webp`) with an Amiqus icon.
 
 To re-enable the Multipaz backend features, build with `IDENTITY_READER_BACKEND_URL` set.
+
+### Signing
+
+Keep the Amiqus keystore and its passwords out of the repo. Add them to `~/.gradle/gradle.properties`:
+
+```properties
+amiqusSigningStoreFile=/path/to/amiqus-demo-verifier.jks
+amiqusSigningStorePassword=…
+amiqusSigningKeyAlias=amiqus-demo-verifier
+amiqusSigningKeyPassword=…
+```
+
+Check with `./gradlew :composeApp:signingReport` (it should show `Config: amiqus`). A device with a
+build signed by a different key must uninstall it before installing this one.
 
 ### Using it
 
