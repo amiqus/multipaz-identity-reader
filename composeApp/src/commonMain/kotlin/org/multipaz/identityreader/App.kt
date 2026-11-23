@@ -296,6 +296,7 @@ class App(
                         navigator.navigate(TransferDestination)
                     },
                     onReaderIdentityClicked = { navigator.navigate(ReaderIdentityDestination) },
+                    onCustomQueryClicked = { navigator.navigate(CustomQueryDestination) },
                     onTrustedIssuersClicked = { navigator.navigate(TrustedIssuersDestination) },
                     onDeveloperSettingsClicked = { navigator.navigate(DeveloperSettingsDestination) },
                     onAboutClicked = { navigator.navigate(AboutDestination) },
@@ -341,7 +342,10 @@ class App(
                     },
                     onReaderIdentitiesClicked = {
                         navigator.navigate(ReaderIdentityDestination)
-                    }
+                    },
+                    onCustomQueryClicked = {
+                        navigator.navigate(CustomQueryDestination)
+                    },
                 )
             }
             entry<TransferDestination> {
@@ -401,6 +405,12 @@ class App(
                             CertificateViewerDestination(certificateDataBase64)
                         )
                     },
+                )
+            }
+            entry<CustomQueryDestination> {
+                CustomQueryScreen(
+                    settingsModel = settingsModel,
+                    onBackPressed = { navigator.goBack() },
                 )
             }
             entry<TrustedIssuersDestination> {

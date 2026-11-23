@@ -135,7 +135,12 @@ class SettingsModel private constructor(
 
     private suspend fun init() {
         bind(logTransactions, "logTransactions", false)
-        bind(selectedQueryName, "selectedQueryName", ReaderQuery.AGE_OVER_21.name)
+        bind(selectedQueryName, "selectedQueryName", ReaderQuery.IDENTIFICATION.name)
+        // The saved query may have been removed from the app since (e.g. AGE_OVER_21).
+        if (ReaderQuery.entries.none { it.name == selectedQueryName.value }) {
+            selectedQueryName.value = ReaderQuery.IDENTIFICATION.name
+        }
+        bind(customQueryDataElements, "customQueryDataElements", IDENTIFICATION_MDL_DATA_ELEMENTS)
         bind(builtInIssuersUpdatedAt, "builtInIssuersUpdatedAt", Instant.DISTANT_PAST)
         bind(builtInIssuersVersion, "builtInIssuersVersion", Long.MIN_VALUE)
         bind(readerAuthMethod, "readerAuthMethod", ReaderAuthMethod.DEVICE_KEY)
@@ -155,7 +160,8 @@ class SettingsModel private constructor(
     }
 
     val logTransactions = MutableStateFlow<Boolean>(false)
-    val selectedQueryName = MutableStateFlow<String>(ReaderQuery.AGE_OVER_21.name)
+    val selectedQueryName = MutableStateFlow<String>(ReaderQuery.IDENTIFICATION.name)
+    val customQueryDataElements = MutableStateFlow<List<String>>(IDENTIFICATION_MDL_DATA_ELEMENTS)
     val builtInIssuersUpdatedAt = MutableStateFlow<Instant>(Instant.DISTANT_PAST)
     val builtInIssuersVersion = MutableStateFlow<Long>(Long.MIN_VALUE)
     val readerAuthMethod = MutableStateFlow<ReaderAuthMethod>(ReaderAuthMethod.DEVICE_KEY)

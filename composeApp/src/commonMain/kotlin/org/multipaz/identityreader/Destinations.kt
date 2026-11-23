@@ -44,5 +44,7 @@ data object DeveloperSettingsDestination: Destination
 
 data object ReaderIdentityDestination: Destination
 
+data object CustomQueryDestination: Destination
+
 const val TRUST_MANAGER_ID_BUILT_IN = "built-in"
 const val TRUST_MANAGER_ID_USER = "user"

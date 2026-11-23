@@ -1,17 +1,12 @@
 package org.multipaz.identityreader
 
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,11 +32,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import io.github.alexzhirkevich.compottie.Compottie
-import io.github.alexzhirkevich.compottie.LottieCompositionSpec
-import io.github.alexzhirkevich.compottie.animateLottieCompositionAsState
-import io.github.alexzhirkevich.compottie.rememberLottieComposition
-import io.github.alexzhirkevich.compottie.rememberLottiePainter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -139,6 +129,7 @@ fun StartScreen(
     onScanQrClicked: () -> Unit,
     onNfcHandover: suspend (scanResult: ScanMdocReaderResult) -> Unit,
     onReaderIdentityClicked: () -> Unit,
+    onCustomQueryClicked: () -> Unit,
     onTrustedIssuersClicked: () -> Unit,
     onDeveloperSettingsClicked: () -> Unit,
     onAboutClicked: () -> Unit,
@@ -273,6 +264,7 @@ fun StartScreen(
                 mdocTransportOptionsForNfcEngagement = mdocTransportOptionsForNfcEngagement,
                 onScanQrClicked = onScanQrClicked,
                 onNfcHandover = onNfcHandover,
+                onCustomQueryClicked = onCustomQueryClicked,
                 onOpportunisticSignInToGoogle = {
                     // Only opportunistically try to sign in the user except
                     //  - they explicitly signed out
@@ -309,27 +301,10 @@ private fun StartScreenWithPermissions(
     onScanQrClicked: () -> Unit,
     onNfcHandover: suspend (scanResult: ScanMdocReaderResult) -> Unit,
     onOpportunisticSignInToGoogle: () -> Unit,
-    onReaderIdentityClicked: () -> Unit
+    onReaderIdentityClicked: () -> Unit,
+    onCustomQueryClicked: () -> Unit,
 ) {
-    val isDarkTheme = isSystemInDarkTheme()
-    val selectedQueryName = remember { mutableStateOf(
-        ReaderQuery.valueOf(settingsModel.selectedQueryName.value).name
-    )}
     val coroutineScope = rememberCoroutineScope { promptModel }
-    val nfcComposition by rememberLottieComposition {
-        LottieCompositionSpec.JsonString(
-            if (isDarkTheme) {
-                Res.readBytes("files/nfc_animation_dark.json").decodeToString()
-            } else {
-                Res.readBytes("files/nfc_animation.json").decodeToString()
-            }
-        )
-    }
-    val nfcProgressState = animateLottieCompositionAsState(
-        composition = nfcComposition,
-        iterations = Compottie.IterateForever
-    )
-
     val reader = NfcTagReader.getReaders().firstOrNull()
     val nfcScanOptions = if (getPlatformUtils().nfcPollingFramesInsertionSupported && settingsModel.insertNfcPollingFrames.collectAsState().value) {
         NfcScanOptions(
@@ -395,58 +370,23 @@ private fun StartScreenWithPermissions(
         AppUpdateCard()
 
         Spacer(modifier = Modifier.weight(0.1f))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(
-                16.dp,
-                alignment = Alignment.CenterHorizontally
-            )
-        ) {
-            for (query in ReaderQuery.entries) {
-                FilterChip(
-                    selected = query.name == selectedQueryName.value,
-                    onClick = {
-                        selectedQueryName.value = query.name
-                        settingsModel.selectedQueryName.value = query.name
-                    },
-                    label = { Text(text = query.displayName) },
-                )
-            }
-        }
+        QueryChips(
+            settingsModel = settingsModel,
+            onCustomQueryClicked = onCustomQueryClicked,
+        )
 
         Spacer(modifier = Modifier.weight(0.2f))
 
-        if (reader == null) {
-            // This is for phones that don't support NFC scanning
+        if (reader != null && reader.dialogAlwaysShown) {
+            // This is for phones that requires a dialog for NFC scanning (iOS)
             Text(
-                text = "Scan QR code from Wallet",
+                text = "Scan NFC or QR from Wallet",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
-        } else {
-            Image(
-                painter = rememberLottiePainter(
-                    composition = nfcComposition,
-                    progress = { nfcProgressState.value },
-                ),
-                contentDescription = null,
-                modifier = Modifier.size(200.dp)
-            )
-            if (!reader.dialogAlwaysShown) {
-                // This is for phones that support NFC scanning w/o dialog (Android)
-                Text(
-                    text = "Hold to Wallet",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            } else {
-                // This is for phones that requires a dialog for NFC scanning (iOS)
-                Text(
-                    text = "Scan NFC or QR from Wallet",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
         }
+        // Otherwise no prompt: GOV.UK Wallet engages by QR code, via the button below. On Android,
+        // NFC engagement still works in the background (see LaunchedEffect above).
 
         Spacer(modifier = Modifier.weight(0.2f))
         RequestingData(

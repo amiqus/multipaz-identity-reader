@@ -360,18 +360,18 @@ private fun ShowResultsScreenSuccess(
                     )
                 }
 
-                ReaderQuery.AGE_OVER_21 -> {
-                    ShowAgeOver(
-                        age = 21,
+                ReaderQuery.IDENTIFICATION -> {
+                    ShowIdentification(
                         document = document,
                         onShowDetailedResults = onShowDetailedResults
                     )
                 }
 
-                ReaderQuery.IDENTIFICATION -> {
+                ReaderQuery.CUSTOM -> {
                     ShowIdentification(
                         document = document,
-                        onShowDetailedResults = onShowDetailedResults
+                        onShowDetailedResults = onShowDetailedResults,
+                        title = "Requested data verified",
                     )
                 }
             }
@@ -454,7 +454,8 @@ private fun ShowAgeOver(
 @Composable
 private fun ShowIdentification(
     document: ParsedMdocDocument,
-    onShowDetailedResults: (() -> Unit)?
+    onShowDetailedResults: (() -> Unit)?,
+    title: String = "Identity data verified",
 ) {
     val portraitBitmap = remember { getPortraitBitmap(document) }
     val composition by rememberLottieComposition {
@@ -466,22 +467,25 @@ private fun ShowIdentification(
         composition = composition,
     )
 
-    Image(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(300.dp)
-            .padding(16.dp)
-            .let {
-                if (onShowDetailedResults != null) {
-                    it.combinedClickable(
-                        onClick = {},
-                        onDoubleClick = { onShowDetailedResults() }
-                    )
-                } else it
-            },
-        bitmap = portraitBitmap!!,
-        contentDescription = null
-    )
+    // A custom request may not include the portrait.
+    if (portraitBitmap != null) {
+        Image(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .padding(16.dp)
+                .let {
+                    if (onShowDetailedResults != null) {
+                        it.combinedClickable(
+                            onClick = {},
+                            onDoubleClick = { onShowDetailedResults() }
+                        )
+                    } else it
+                },
+            bitmap = portraitBitmap,
+            contentDescription = null
+        )
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -494,7 +498,7 @@ private fun ShowIdentification(
             modifier = Modifier.size(50.dp)
         )
         Text(
-            text = "Identity data verified",
+            text = title,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center

@@ -1,20 +1,15 @@
 package org.multipaz.identityreader
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,11 +25,9 @@ fun SelectRequestScreen(
     readerBackendClient: ReaderBackendClient,
     onBackPressed: () -> Unit,
     onContinueClicked: () -> Unit,
-    onReaderIdentitiesClicked: () -> Unit
+    onReaderIdentitiesClicked: () -> Unit,
+    onCustomQueryClicked: () -> Unit,
 ) {
-    val selectedQueryName = remember { mutableStateOf(
-        ReaderQuery.valueOf(settingsModel.selectedQueryName.value).name
-    )}
     val blePermissionState = rememberBluetoothPermissionState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -69,23 +62,10 @@ fun SelectRequestScreen(
                     )
 
                     Spacer(modifier = Modifier.weight(0.1f))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(
-                            16.dp,
-                            alignment = Alignment.CenterHorizontally
-                        )
-                    ) {
-                        for (query in ReaderQuery.entries) {
-                            FilterChip(
-                                selected = query.name == selectedQueryName.value,
-                                onClick = {
-                                    selectedQueryName.value = query.name
-                                    settingsModel.selectedQueryName.value = query.name
-                                },
-                                label = { Text(text = query.displayName) },
-                            )
-                        }
-                    }
+                    QueryChips(
+                        settingsModel = settingsModel,
+                        onCustomQueryClicked = onCustomQueryClicked,
+                    )
                     Spacer(modifier = Modifier.weight(0.2f))
 
                     RequestingData(

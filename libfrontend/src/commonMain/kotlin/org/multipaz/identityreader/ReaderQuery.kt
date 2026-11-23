@@ -30,20 +30,50 @@ private fun X509CertChain.withoutTrustAnchor(): X509CertChain {
     return if (trimmed.isEmpty()) this else X509CertChain(trimmed)
 }
 
+/** The mDL data elements [ReaderQuery.IDENTIFICATION] requests. Also the starting [ReaderQuery.CUSTOM] selection. */
+val IDENTIFICATION_MDL_DATA_ELEMENTS = listOf(
+    "given_name",
+    "family_name",
+    "birth_date",
+    "birth_place",
+    "sex",
+    "portrait",
+    "resident_address",
+    "resident_city",
+    "resident_state",
+    "resident_postal_code",
+    "resident_country",
+    "issuing_authority",
+    "document_number",
+    "issue_date",
+    "expiry_date",
+)
+
 enum class ReaderQuery(
     val displayName: String,
 ) {
     AGE_OVER_18(
         displayName = "Age Over 18",
     ),
-    AGE_OVER_21(
-        displayName = "Age Over 21",
-    ),
     IDENTIFICATION(
         displayName = "Identification",
     ),
+    CUSTOM(
+        displayName = "Custom",
+    ),
 
     ;
+
+    /**
+     * The mDL data elements this query requests.
+     *
+     * @param customDataElements the elements chosen for [CUSTOM], e.g. [SettingsModel.customQueryDataElements].
+     */
+    fun mdlDataElements(customDataElements: List<String>): List<String> = when (this) {
+        AGE_OVER_18 -> listOf("age_over_18", "portrait")
+        IDENTIFICATION -> IDENTIFICATION_MDL_DATA_ELEMENTS
+        CUSTOM -> customDataElements.distinct()
+    }
 
     suspend fun generateDeviceRequest(
         settingsModel: SettingsModel,
@@ -66,6 +96,7 @@ enum class ReaderQuery(
             ReaderAuthMethod.NO_READER_AUTH -> {
                 generateEncodedDeviceRequest(
                     query = this,
+                    customDataElements = settingsModel.customQueryDataElements.value,
                     deviceEngagement = deviceEngagement,
                     intentToRetain = settingsModel.logTransactions.value,
                     encodedSessionTranscript = encodedSessionTranscript.toByteArray(),
@@ -112,6 +143,7 @@ enum class ReaderQuery(
                 }
                 generateEncodedDeviceRequest(
                     query = this,
+                    customDataElements = settingsModel.customQueryDataElements.value,
                     deviceEngagement = deviceEngagement,
                     intentToRetain = settingsModel.logTransactions.value,
                     encodedSessionTranscript = encodedSessionTranscript.toByteArray(),
@@ -128,6 +160,7 @@ enum class ReaderQuery(
                 }
                 generateEncodedDeviceRequest(
                     query = this,
+                    customDataElements = settingsModel.customQueryDataElements.value,
                     deviceEngagement = deviceEngagement,
                     intentToRetain = settingsModel.logTransactions.value,
                     encodedSessionTranscript = encodedSessionTranscript.toByteArray(),
@@ -156,6 +189,7 @@ enum class ReaderQuery(
                 }
                 generateEncodedDeviceRequest(
                     query = this,
+                    customDataElements = settingsModel.customQueryDataElements.value,
                     deviceEngagement = deviceEngagement,
                     intentToRetain = settingsModel.logTransactions.value,
                     encodedSessionTranscript = encodedSessionTranscript.toByteArray(),
@@ -169,6 +203,7 @@ enum class ReaderQuery(
 
 suspend fun generateEncodedDeviceRequest(
     query: ReaderQuery,
+    customDataElements: List<String> = emptyList(),
     deviceEngagement: DeviceEngagement,
     intentToRetain: Boolean,
     encodedSessionTranscript: ByteArray,
@@ -176,33 +211,8 @@ suspend fun generateEncodedDeviceRequest(
 ): ByteArray {
     val mdlItemsToRequest = mutableMapOf<String, MutableMap<String, Boolean>>()
     val mdlNs = mdlItemsToRequest.getOrPut(DrivingLicense.MDL_NAMESPACE) { mutableMapOf() }
-    when (query) {
-        ReaderQuery.AGE_OVER_18 -> {
-            mdlNs.put("age_over_18", intentToRetain)
-            mdlNs.put("portrait", intentToRetain)
-        }
-        ReaderQuery.AGE_OVER_21 -> {
-            mdlNs.put("age_over_21", intentToRetain)
-            mdlNs.put("portrait", intentToRetain)
-        }
-        ReaderQuery.IDENTIFICATION -> {
-            mdlNs.put("given_name", intentToRetain)
-            mdlNs.put("family_name", intentToRetain)
-            mdlNs.put("birth_date", intentToRetain)
-            mdlNs.put("birth_place", intentToRetain)
-            mdlNs.put("sex", intentToRetain)
-            mdlNs.put("portrait", intentToRetain)
-            mdlNs.put("resident_address", intentToRetain)
-            mdlNs.put("resident_city", intentToRetain)
-            mdlNs.put("resident_state", intentToRetain)
-            mdlNs.put("resident_postal_code", intentToRetain)
-            mdlNs.put("resident_country", intentToRetain)
-            mdlNs.put("issuing_authority", intentToRetain)
-            mdlNs.put("document_number", intentToRetain)
-            mdlNs.put("issue_date", intentToRetain)
-            mdlNs.put("expiry_date", intentToRetain)
-        }
-    }
+    query.mdlDataElements(customDataElements).forEach { mdlNs.put(it, intentToRetain) }
+    require(mdlNs.isNotEmpty()) { "No data elements to request" }
     val mdlDocType = DrivingLicense.MDL_DOCTYPE
 
     val photoIdItemsToRequest = mutableMapOf<String, MutableMap<String, Boolean>>()
@@ -212,10 +222,8 @@ suspend fun generateEncodedDeviceRequest(
             iso23220Ns.put("age_over_18", intentToRetain)
             iso23220Ns.put("portrait", intentToRetain)
         }
-        ReaderQuery.AGE_OVER_21 -> {
-            iso23220Ns.put("age_over_21", intentToRetain)
-            iso23220Ns.put("portrait", intentToRetain)
-        }
+        // Custom field names are mDL ones, so only the mDL is requested.
+        ReaderQuery.CUSTOM -> {}
         ReaderQuery.IDENTIFICATION -> {
             iso23220Ns.put("given_name", intentToRetain)
             iso23220Ns.put("family_name", intentToRetain)
@@ -235,15 +243,17 @@ suspend fun generateEncodedDeviceRequest(
         }
     }
     val photoIdDocType = PhotoID.PHOTO_ID_DOCTYPE
+    val requestPhotoId = iso23220Ns.isNotEmpty() &&
+            deviceEngagement.capabilities.get(Capability.EXTENDED_REQUEST_SUPPORT)?.asBoolean == true
 
     val deviceRequestInfo = if (deviceEngagement.capabilities.get(Capability.EXTENDED_REQUEST_SUPPORT)?.asBoolean == true) {
         DeviceRequestInfo(
             useCases = listOf(
                 UseCase(
                     mandatory = true,
-                    documentSets = listOf(
+                    documentSets = listOfNotNull(
                         DocumentSet(listOf(0)),
-                        DocumentSet(listOf(1)),
+                        if (requestPhotoId) DocumentSet(listOf(1)) else null,
                     ),
                     purposeHints = mapOf()
                 )
@@ -262,7 +272,7 @@ suspend fun generateEncodedDeviceRequest(
                 docRequestInfo = null,
                 readerKey = readerKey
             )
-            if (deviceEngagement.capabilities.get(Capability.EXTENDED_REQUEST_SUPPORT)?.asBoolean == true) {
+            if (requestPhotoId) {
                 addDocRequest(
                     docType = photoIdDocType,
                     nameSpaces = photoIdItemsToRequest,
@@ -276,7 +286,7 @@ suspend fun generateEncodedDeviceRequest(
                 nameSpaces = mdlItemsToRequest,
                 docRequestInfo = null
             )
-            if (deviceEngagement.capabilities.get(Capability.EXTENDED_REQUEST_SUPPORT)?.asBoolean == true) {
+            if (requestPhotoId) {
                 addDocRequest(
                     docType = photoIdDocType,
                     nameSpaces = photoIdItemsToRequest,
