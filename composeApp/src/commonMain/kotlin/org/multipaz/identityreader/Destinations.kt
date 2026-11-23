@@ -16,8 +16,6 @@ data object ShowResultsDestination: Destination
 
 data object ShowDetailedResultsDestination: Destination
 
-data object AboutDestination: Destination
-
 data class CertificateViewerDestination(
     val certificateDataBase64: String
 ): Destination

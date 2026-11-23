@@ -6,7 +6,6 @@
     <string name="developer_settings_screen_title">Developer Settings</string>
     <string name="reader_identity_title">Reader identity</string>
     <string name="trusted_issuers_screen_title">Trusted issuers</string>
-    <string name="about_screen_title">About</string>
     <string name="show_certificate_screen_title">Certificate</string>
     <string name="show_certificate_screen_title_for_chain">Certificate chain</string>
 </resources>

@@ -132,7 +132,6 @@ fun StartScreen(
     onCustomQueryClicked: () -> Unit,
     onTrustedIssuersClicked: () -> Unit,
     onDeveloperSettingsClicked: () -> Unit,
-    onAboutClicked: () -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
     val blePermissionState = rememberBluetoothPermissionState()
@@ -203,10 +202,6 @@ fun StartScreen(
             onDeveloperSettingsClicked = {
                 showAccountDialog.value = false
                 onDeveloperSettingsClicked()
-            },
-            onAboutClicked = {
-                showAccountDialog.value = false
-                onAboutClicked()
             },
         )
     }

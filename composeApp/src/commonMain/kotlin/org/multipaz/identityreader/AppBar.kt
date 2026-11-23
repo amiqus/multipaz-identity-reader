@@ -2,10 +2,9 @@ package org.multipaz.identityreader
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -74,9 +73,8 @@ fun AppBar(
                         signedIn.value!!.ProfilePicture(size = 32.dp)
                     } else {
                         Icon(
-                            modifier = Modifier.size(32.dp),
-                            imageVector = Icons.Outlined.AccountCircle,
-                            contentDescription = null,
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "Settings",
                         )
                     }
                 }

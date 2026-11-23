@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Help
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -78,7 +77,6 @@ fun SettingsDialog(
     onReaderIdentityClicked: () -> Unit,
     onTrustedIssuersClicked: () -> Unit,
     onDeveloperSettingsClicked: () -> Unit,
-    onAboutClicked: () -> Unit,
 ) {
     val signedIn = settingsModel.signedIn.collectAsState()
 
@@ -198,12 +196,12 @@ fun SettingsDialog(
                         )
                     }
 
-                    SettingsItem(
-                        text = { Text("About") },
-                        leadingIcon = {
-                            Icon(Icons.AutoMirrored.Outlined.Help, contentDescription = null)
-                        },
-                        onClick = { onAboutClicked() }
+                    Text(
+                        modifier = Modifier.fillMaxWidth(),
+                        text = "Version ${BuildConfig.VERSION}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        textAlign = TextAlign.Center,
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))

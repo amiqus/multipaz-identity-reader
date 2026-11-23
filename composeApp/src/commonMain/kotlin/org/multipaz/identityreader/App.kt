@@ -299,7 +299,6 @@ class App(
                     onCustomQueryClicked = { navigator.navigate(CustomQueryDestination) },
                     onTrustedIssuersClicked = { navigator.navigate(TrustedIssuersDestination) },
                     onDeveloperSettingsClicked = { navigator.navigate(DeveloperSettingsDestination) },
-                    onAboutClicked = { navigator.navigate(AboutDestination) },
                 )
             }
             entry<ScanQrDestination> {
@@ -428,11 +427,6 @@ class App(
                             )
                         )
                     }
-                )
-            }
-            entry<AboutDestination> {
-                AboutScreen(
-                    onBackPressed = { navigator.goBack() },
                 )
             }
             entry<CertificateViewerDestination> { key ->
