@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
@@ -54,8 +57,12 @@ import org.multipaz.prompt.PromptModel
 import org.multipaz.prompt.requestPassphrase
 import org.multipaz.securearea.PassphraseConstraints
 import org.multipaz.util.Logger
+import kotlin.time.Clock
 
 private const val TAG = "ReaderIdentityScreen"
+
+// Public intermediates appended to the reader certificate the signer sends back: the Amiqus
+// Reader Sub-CA and the GOV.UK Wallet Verifier CA, both for the INT (sandbox) environment.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,6 +76,134 @@ fun ReaderIdentityScreen(
     val coroutineScope = rememberCoroutineScope { promptModel }
     val showImportErrorDialog = remember { mutableStateOf<String?>(null) }
     val availableReaderIdentities = mutableStateOf<List<ReaderIdentity>?>(null)
+
+    val secureArea = readerBackendClient.secureArea
+    val deviceKeyAlias = settingsModel.deviceReaderKeyAlias.collectAsState()
+    val deviceCertChain = settingsModel.deviceReaderCertChain.collectAsState()
+    val deviceKeyStorage = remember { mutableStateOf<String?>(null) }
+    val showCsrDialog = remember { mutableStateOf<String?>(null) }
+    val showRegenerateDialog = remember { mutableStateOf(false) }
+
+    LaunchedEffect(deviceKeyAlias.value) {
+        deviceKeyStorage.value = deviceKeyAlias.value?.let { alias ->
+            try {
+                getPlatformUtils().describeKeyStorage(secureArea.getKeyInfo(alias))
+            } catch (e: Throwable) {
+                Logger.w(TAG, "Error getting device reader key info", e)
+                null
+            }
+        }
+    }
+
+    fun generateDeviceKey() {
+        coroutineScope.launch {
+            try {
+                val csr = generateDeviceReaderKey(
+                    settingsModel = settingsModel,
+                    secureArea = secureArea,
+                    createKeySettings = getPlatformUtils().deviceReaderKeySettings()
+                )
+                settingsModel.readerAuthMethod.value = ReaderAuthMethod.DEVICE_KEY
+                showCsrDialog.value = csrToPem(csr)
+            } catch (e: Throwable) {
+                Logger.e(TAG, "Error generating device reader key", e)
+                showImportErrorDialog.value = "Generating reader key failed: $e"
+            }
+        }
+    }
+
+    val importDeviceCertFilePicker = rememberFilePicker(
+        // .pem files have no reliable MIME type on Android, so allow any file and parse it.
+        types = listOf("*/*"),
+        allowMultiple = false,
+        onResult = { files ->
+            if (files.isNotEmpty()) {
+                coroutineScope.launch {
+                    try {
+                        val certChain = X509CertChain(parseCertificates(files[0]))
+                        importDeviceReaderCertChain(settingsModel, secureArea, certChain)
+                        settingsModel.readerAuthMethod.value = ReaderAuthMethod.DEVICE_KEY
+                    } catch (e: Throwable) {
+                        Logger.e(TAG, "Error importing device reader certificate", e)
+                        showImportErrorDialog.value = "Importing certificate failed: ${e.message}"
+                    }
+                }
+            }
+        }
+    )
+
+    showCsrDialog.value?.let { csrPem ->
+        AlertDialog(
+            onDismissRequest = { showCsrDialog.value = null },
+            confirmButton = {
+                TextButton(
+                    onClick = { getPlatformUtils().shareText("Reader certificate signing request", csrPem) }
+                ) {
+                    Text(text = "Share")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCsrDialog.value = null }
+                ) {
+                    Text(text = "Close")
+                }
+            },
+            title = {
+                Text(text = "Certificate signing request")
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Send this to the Amiqus reader signer, then import the certificate " +
+                                "they send back. It contains only this device's public key."
+                    )
+                    SelectionContainer {
+                        Text(
+                            text = csrPem,
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        )
+    }
+
+    if (showRegenerateDialog.value) {
+        AlertDialog(
+            onDismissRequest = { showRegenerateDialog.value = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRegenerateDialog.value = false
+                        generateDeviceKey()
+                    }
+                ) {
+                    Text(text = "Generate")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showRegenerateDialog.value = false }
+                ) {
+                    Text(text = "Cancel")
+                }
+            },
+            title = {
+                Text(text = "Generate a new key?")
+            },
+            text = {
+                Text(
+                    text = "The current key and its certificate will be deleted. You'll need a new " +
+                            "certificate from the Amiqus reader signer."
+                )
+            }
+        )
+    }
 
     val importReaderKeyFilePicker = rememberFilePicker(
         types = listOf(
@@ -138,7 +273,7 @@ fun ReaderIdentityScreen(
                 }
             },
             title = {
-                Text(text = "Error importing reader key")
+                Text(text = "Reader key error")
             },
             text = {
                 Text(text = it)
@@ -199,6 +334,35 @@ the request is from
                         )
                         Checkbox(
                             checked = readerAuthMethod.value == ReaderAuthMethod.NO_READER_AUTH,
+                            onCheckedChange = null
+                        )
+                    }
+                }
+                entries.add {
+                    Row(
+                        modifier = Modifier.clickable {
+                            if (deviceKeyAlias.value == null) {
+                                generateDeviceKey()
+                            } else {
+                                settingsModel.readerAuthMethod.value = ReaderAuthMethod.DEVICE_KEY
+                            }
+                        },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.Start),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            modifier = Modifier.size(32.dp),
+                            imageVector = Icons.Outlined.Key,
+                            contentDescription = null
+                        )
+                        EntryItem(
+                            modifier = Modifier.weight(1.0f),
+                            key = "Use this device's reader key",
+                            valueText = "A key generated in this device's secure hardware signs " +
+                                    "requests. It never leaves the device",
+                        )
+                        Checkbox(
+                            checked = readerAuthMethod.value == ReaderAuthMethod.DEVICE_KEY,
                             onCheckedChange = null
                         )
                     }
@@ -362,6 +526,62 @@ the request is from
                     entries = entries
                 )
 
+                if (readerAuthMethod.value == ReaderAuthMethod.DEVICE_KEY && deviceKeyAlias.value != null) {
+                    val cert = deviceCertChain.value?.certificates?.first()
+                    val status = when {
+                        cert == null -> "Waiting for a certificate. Share the certificate signing " +
+                                "request with the Amiqus reader signer, then import the certificate " +
+                                "they send back"
+                        cert.validityNotAfter < Clock.System.now() ->
+                            "The certificate expired on ${cert.validityNotAfter.toString().substringBefore('T')}. " +
+                                    "Share the certificate signing request again to get a new one"
+                        else -> "Certified as ${cert.subject.name}, " +
+                                "valid until ${cert.validityNotAfter.toString().substringBefore('T')}"
+                    }
+                    EntryList(
+                        title = "This device's reader key",
+                        entries = listOf(
+                            {
+                                EntryItem(
+                                    key = "Status",
+                                    valueText = "$status." + (deviceKeyStorage.value?.let { " Key stored in $it." } ?: ""),
+                                )
+                            },
+                            {
+                                EntryItem(
+                                    modifier = Modifier.clickable {
+                                        coroutineScope.launch {
+                                            try {
+                                                showCsrDialog.value =
+                                                    csrToPem(getDeviceReaderCsr(settingsModel, secureArea))
+                                            } catch (e: Throwable) {
+                                                Logger.e(TAG, "Error generating CSR", e)
+                                                showImportErrorDialog.value = "Generating the request failed: $e"
+                                            }
+                                        }
+                                    },
+                                    key = "Share certificate signing request",
+                                    valueText = "Send it to the Amiqus reader signer",
+                                )
+                            },
+                            {
+                                EntryItem(
+                                    modifier = Modifier.clickable { importDeviceCertFilePicker.launch() },
+                                    key = "Import certificate",
+                                    valueText = "The chain .pem file the signer sends back",
+                                )
+                            },
+                            {
+                                EntryItem(
+                                    modifier = Modifier.clickable { showRegenerateDialog.value = true },
+                                    key = "Generate a new key",
+                                    valueText = "Deletes this key and its certificate",
+                                )
+                            },
+                        )
+                    )
+                }
+
                 if (readerAuthMethod.value != ReaderAuthMethod.NO_READER_AUTH) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -375,6 +595,9 @@ the request is from
                                             ReaderAuthMethod.NO_READER_AUTH -> {}
                                             ReaderAuthMethod.CUSTOM_KEY -> {
                                                 settingsModel.customReaderAuthCertChain.value?.let(onShowCertificateChain)
+                                            }
+                                            ReaderAuthMethod.DEVICE_KEY -> {
+                                                settingsModel.deviceReaderCertChain.value?.let(onShowCertificateChain)
                                             }
                                             ReaderAuthMethod.IDENTITY_FROM_GOOGLE_ACCOUNT -> {
                                                 coroutineScope.launch {

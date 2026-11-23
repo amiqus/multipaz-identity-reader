@@ -16,7 +16,8 @@ and synthetic test data only.
 | Bundled trusted issuers, loaded on first launch when there's no backend: the GOV.UK sandbox document signer (a stopgap until GDS sends the sandbox IACA), and DVLA's non-prod `mDL IACA Root` for the 2026-12-09 event | `BundledIssuers.kt`, `App.kt`, `composeResources/files/trusted-issuers/` | No manual issuer import, and no reliance on venue Wi-Fi. Bump `BUNDLED_ISSUERS_VERSION` whenever the list changes. Before the event, re-check DVLA's `mdoc_iacas_uri` (`https://credential-issuer-nonprod.dvla.gov.uk/gov-uk/iacas`) and compare the fingerprint `3885aa9c…ce62a9`. |
 | The issuer certificate chain of every received document is logged (public certificates only) | `ShowResultsScreen.kt` | Identifies a missing issuer root, e.g. DVLA's at the event |
 | No backend by default, so the app never contacts `identityreader.multipaz.org` | `composeApp/build.gradle.kts`, `ReaderBackendConfig.kt`, `App.kt`, `StartScreen.kt`, `SettingsDialog.kt`, `ReaderIdentityScreen.kt` | We use our own GOV.UK-issued reader certificate, not Multipaz's CA. No trust list or Google sign-in. The settings menu (profile icon) still works, without the Google account card. |
-| Default reader auth is **custom key** (imported PKCS#12). With none imported, requests go out unauthenticated and a warning is logged. | `libfrontend/…/SettingsModel.kt`, `ReaderQuery.kt` | Uses the Amiqus reader certificate |
+| **Device reader key**: the app generates a P-256 reader key in Android Keystore (StrongBox when the phone has it), shares a CSR (`C=GB, O=Amiqus Resolution Limited, CN=Amiqus Demo Verifier`), and imports the certificate chain the Amiqus signer sends back. A reader certificate without its chain is rejected, because the wallet needs the intermediates. | `libfrontend/…/Csr.kt`, `DeviceReaderKey.kt`, `PlatformUtils*.kt`, `ReaderQuery.kt`, `ReaderIdentityScreen.kt` | The reader's private key never leaves the phone, so there's no `.p12` or passphrase to hand around. Each phone gets its own certificate. Tested end to end with GOV.UK Wallet (sandbox) on 2026-11-23. |
+| Default reader auth is the **device reader key**. Until its certificate is imported, requests go out unauthenticated and a warning is logged. Importing a PKCS#12 file still works as a fallback. | `libfrontend/…/SettingsModel.kt`, `ReaderQuery.kt` | Uses an Amiqus reader certificate. Existing installs keep whichever method they had. |
 | App name "Amiqus Demo Verifier", application ID `com.amiqus.demoverifier` | `strings.xml` (×2), `RequestBluetoothPermission.kt`, `composeApp/build.gradle.kts` | Distinguishes it from the upstream app. Apache 2.0 grants no trademark rights. |
 | APKs are signed with the Amiqus key from Gradle properties, not the public upstream `devkey.keystore`. Without the key set, debug builds use the local Android debug key and release builds are unsigned. | `composeApp/build.gradle.kts` | Anyone can sign an APK with the public devkey, so it could impersonate our build or update over it |
 | `NOTICE` file and this section | repo root | Apache 2.0 §4(b): state that files were changed |
@@ -44,15 +45,32 @@ build signed by a different key must uninstall it before installing this one.
 ### Using it
 
 1. Build and install: `./gradlew :composeApp:installDebug` (phone connected over USB)
-2. Profile icon → **Reader identity** → *Use reader certificate from PKCS#12 file* → choose
-   `reader.p12` (the full chain including the root is fine; see the `amiqus-reader-ca` repo)
+2. Get the phone a reader certificate (once per phone, and again when it expires after ~90 days):
+   1. Tap **Requesting data as** on the start screen (or profile icon → **Reader identity**) →
+      *Use this device's reader key*. The app creates the key and shows its certificate signing
+      request (CSR). The status says whether the key is in StrongBox or the TEE.
+   2. Tap **Share** and send the CSR to someone who can sign with the Amiqus sub-CA (see the
+      `amiqus-reader-ca` repo). The CSR holds only the public key, so email or chat is fine.
+   3. They send back the **chain file** (`…-chain.pem`: reader certificate, Amiqus sub-CA, GOV.UK
+      Verifier CA). Put it on the phone (e.g. `adb push reader-chain.pem /sdcard/Download/`), then
+      tap **Import certificate** and choose it. The app checks it's for this phone's key and that
+      the chain is valid. It rejects a file with only the reader certificate.
+   4. The status changes to *Certified as … valid until …*, and the start screen says
+      *Using this device's reader key*.
 3. Choose a request, tap *Scan QR*, and scan the GOV.UK Wallet holder's proximity-share QR code
+
+To get the CSR again, tap **Share certificate signing request**. It's for the same key, so a
+certificate issued for an earlier copy still imports. **Don't tap *Generate a new key*** unless you
+mean to replace the key: its certificate stops working.
+
+**Fallback: PKCS#12.** Profile icon → **Reader identity** → *Use reader certificate from PKCS#12
+file* → choose `reader.p12`. The full chain including the root is fine.
 
 Trusted issuers are bundled. Add any others (e.g. DVLA's integration root) under profile icon →
 **Trusted issuers** → *Import Certificate*, or add them to `BundledIssuers.kt`.
 
 **Don't bundle `reader.p12` in the APK.** Anyone with the APK could extract the key and sign requests
-as Amiqus. Each device should import its own certificate, and later generate its key in Android Keystore.
+as Amiqus. Prefer the device reader key: each phone has its own key, which can't be copied off it.
 
 ---
 

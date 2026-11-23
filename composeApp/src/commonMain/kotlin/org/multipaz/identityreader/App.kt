@@ -143,6 +143,7 @@ class App(
     private suspend fun ensureReaderKeys() {
         when (settingsModel.readerAuthMethod.value) {
             ReaderAuthMethod.CUSTOM_KEY,
+            ReaderAuthMethod.DEVICE_KEY,
             ReaderAuthMethod.NO_READER_AUTH -> {
                 Logger.i(TAG, "Not using backend-signed auth so not ensuring keys")
             }

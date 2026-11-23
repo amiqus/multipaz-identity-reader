@@ -53,6 +53,7 @@ enum class ReaderQuery(
         val readerIdentityId = when (settingsModel.readerAuthMethod.value) {
             ReaderAuthMethod.NO_READER_AUTH,
             ReaderAuthMethod.CUSTOM_KEY,
+            ReaderAuthMethod.DEVICE_KEY,
             ReaderAuthMethod.STANDARD_READER_AUTH -> null
             ReaderAuthMethod.STANDARD_READER_AUTH_WITH_GOOGLE_ACCOUNT_DETAILS -> ""
             ReaderAuthMethod.IDENTITY_FROM_GOOGLE_ACCOUNT ->  {
@@ -139,6 +140,26 @@ enum class ReaderQuery(
                     } else {
                         null
                     }
+                )
+            }
+            ReaderAuthMethod.DEVICE_KEY -> {
+                val readerKey = try {
+                    getDeviceReaderKey(settingsModel, readerBackendClient.secureArea)?.let {
+                        it.copy(certChain = it.certChain.withoutTrustAnchor()).withClassicAlgorithm()
+                    }
+                } catch (e: Throwable) {
+                    Logger.e(TAG, "Error getting device reader key", e)
+                    null
+                }
+                if (readerKey == null) {
+                    Logger.w(TAG, "No certified device reader key, proceeding without reader authentication")
+                }
+                generateEncodedDeviceRequest(
+                    query = this,
+                    deviceEngagement = deviceEngagement,
+                    intentToRetain = settingsModel.logTransactions.value,
+                    encodedSessionTranscript = encodedSessionTranscript.toByteArray(),
+                    readerKey = readerKey,
                 )
             }
         }

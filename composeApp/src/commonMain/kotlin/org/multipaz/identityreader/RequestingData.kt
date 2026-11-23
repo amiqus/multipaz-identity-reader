@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,6 +38,7 @@ fun RequestingData(
     val method = settingsModel.readerAuthMethod.collectAsState()
     val googleIdentity = settingsModel.readerAuthMethodGoogleIdentity.collectAsState()
     val signedIn = settingsModel.signedIn.collectAsState()
+    val deviceCertChain = settingsModel.deviceReaderCertChain.collectAsState()
     val (text, iconFn) = when (method.value) {
         ReaderAuthMethod.NO_READER_AUTH -> {
             Pair(
@@ -57,6 +59,22 @@ fun RequestingData(
                     Icon(
                         modifier = Modifier.size(32.dp),
                         imageVector = Icons.Outlined.Badge,
+                        contentDescription = null
+                    )
+                }
+            )
+        }
+        ReaderAuthMethod.DEVICE_KEY -> {
+            Pair(
+                if (deviceCertChain.value != null) {
+                    "Using this device's reader key"
+                } else {
+                    "Reader key not certified yet"
+                },
+                @Composable {
+                    Icon(
+                        modifier = Modifier.size(32.dp),
+                        imageVector = Icons.Outlined.Key,
                         contentDescription = null
                     )
                 }
