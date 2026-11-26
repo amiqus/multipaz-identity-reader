@@ -2,7 +2,11 @@ package org.multipaz.identityreader
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +45,15 @@ import org.multipaz.util.fromBase64Url
 import org.multipaz.util.toBase64Url
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
+
+/** Screens of the reader flow that show the live [LogTailPanel]. */
+private val LOG_PANEL_DESTINATIONS = setOf(
+    StartDestination,
+    SelectRequestDestination,
+    TransferDestination,
+    ShowResultsDestination,
+    ShowDetailedResultsDestination,
+)
 
 data class UrlLaunchData(
     val url: String,
@@ -92,7 +105,12 @@ class App(
                 return
             }
 
+            DemoLog.install(getPlatformUtils().logDirectory)
+            Logger.i(TAG, "Starting ${BuildConfig.VERSION} on ${getPlatformUtils().name}")
             settingsModel = SettingsModel.create(Platform.storage)
+            CoroutineScope(Dispatchers.Default).launch {
+                settingsModel.verboseLogging.collect { DemoLog.setVerbose(it) }
+            }
 
             startDestination = if (urlLaunchData != null) {
                 val encodedDeviceEngagement =
@@ -298,6 +316,7 @@ class App(
                     onReaderIdentityClicked = { navigator.navigate(ReaderIdentityDestination) },
                     onCustomQueryClicked = { navigator.navigate(CustomQueryDestination) },
                     onTrustedIssuersClicked = { navigator.navigate(TrustedIssuersDestination) },
+                    onLogClicked = { navigator.navigate(LogDestination) },
                     onDeveloperSettingsClicked = { navigator.navigate(DeveloperSettingsDestination) },
                 )
             }
@@ -406,6 +425,12 @@ class App(
                     },
                 )
             }
+            entry<LogDestination> {
+                LogScreen(
+                    settingsModel = settingsModel,
+                    onBackPressed = { navigator.goBack() },
+                )
+            }
             entry<CustomQueryDestination> {
                 CustomQueryScreen(
                     settingsModel = settingsModel,
@@ -501,11 +526,30 @@ class App(
                 }
             }
 
-            NavDisplay(
-                entries = navigationState.toEntries(entryProvider),
-                onBack = { navigator.goBack() },
-                modifier = Modifier.fillMaxSize()
-            )
+            val currentDestination = navigationState.backStacks[navigationState.topLevelRoute]?.lastOrNull()
+            val showLogPanel = settingsModel.showLogPanel.collectAsState().value &&
+                    currentDestination in LOG_PANEL_DESTINATIONS
+            Column(modifier = Modifier.fillMaxSize()) {
+                NavDisplay(
+                    entries = navigationState.toEntries(entryProvider),
+                    onBack = { navigator.goBack() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .then(
+                            if (showLogPanel) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier
+                        )
+                )
+                if (showLogPanel) {
+                    LogTailPanel(
+                        onOpenLog = if (currentDestination == TransferDestination) {
+                            null
+                        } else {
+                            { navigator.navigate(LogDestination) }
+                        }
+                    )
+                }
+            }
         }
     }
 }

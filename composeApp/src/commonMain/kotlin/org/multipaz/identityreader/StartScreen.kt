@@ -131,6 +131,7 @@ fun StartScreen(
     onReaderIdentityClicked: () -> Unit,
     onCustomQueryClicked: () -> Unit,
     onTrustedIssuersClicked: () -> Unit,
+    onLogClicked: () -> Unit,
     onDeveloperSettingsClicked: () -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -198,6 +199,10 @@ fun StartScreen(
             onTrustedIssuersClicked = {
                 showAccountDialog.value = false
                 onTrustedIssuersClicked()
+            },
+            onLogClicked = {
+                showAccountDialog.value = false
+                onLogClicked()
             },
             onDeveloperSettingsClicked = {
                 showAccountDialog.value = false

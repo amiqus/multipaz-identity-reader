@@ -53,6 +53,7 @@ import org.multipaz.crypto.AsymmetricKey
 import org.multipaz.documenttype.DocumentTypeRepository
 import org.multipaz.documenttype.knowntypes.DrivingLicense
 import org.multipaz.documenttype.knowntypes.PhotoID
+import org.multipaz.mdoc.devicesigned.DeviceAuth
 import org.multipaz.mdoc.response.DeviceResponse
 import org.multipaz.trustmanagement.TrustManager
 import org.multipaz.trustmanagement.TrustPoint
@@ -113,7 +114,7 @@ fun ShowResultsScreen(
                 } else if (verificationError.value != null) {
                     ShowResultsScreenFailed(
                         message = "Document verification failed",
-                        secondaryMessage = "The returned document is from an unknown issuer",
+                        secondaryMessage = verificationError.value?.message,
                         onShowDetailedResults = onShowDetailedResults
                     )
                 } else {
@@ -160,22 +161,178 @@ private suspend fun parseResponse(
     documentTypeRepository: DocumentTypeRepository,
     issuerTrustManager: TrustManager
 ): List<ParsedMdocDocument> {
-    val deviceResponse = DeviceResponse.fromDataItem(Cbor.decode(
-        readerModel.result!!.encodedDeviceResponse!!.toByteArray()))
-    deviceResponse.verify(
-        sessionTranscript = Cbor.decode(readerModel.result!!.encodedSessionTranscript.toByteArray()),
-        eReaderKey = AsymmetricKey.AnonymousExplicit(
-            privateKey = readerModel.result!!.eReaderKey,
-        ),
-        atTime = now
+    // The response is parsed again each time this screen is shown, so only log the first time.
+    val logEvents = DemoLog.once("parseResponse")
+    // Events are built lazily and guarded, so logging code can never break verification.
+    fun event(build: () -> VerificationEvent) {
+        if (logEvents) {
+            DemoLog.guarded("verification event") {
+                val e = build()
+                DemoLog.event(e.step, DemoDirection.LOCAL, e.message, e.outcome, e.details, e.payloads)
+            }
+        }
+    }
+    try {
+        val documents = parseAndVerifyResponse(now, readerModel, documentTypeRepository, issuerTrustManager, ::event)
+        if (logEvents) {
+            DemoLog.guarded("session outcome") {
+                DemoLog.setSessionOutcome(
+                    if (documents.isEmpty()) DemoOutcome.FAIL else DemoOutcome.PASS,
+                    if (documents.isEmpty()) {
+                        "No documents returned"
+                    } else {
+                        "Verified ${documents.joinToString(", ") { it.docType }}, " +
+                                "issuer trusted via ${documents.joinToString(", ") { it.trustPoint.describe() }}"
+                    }
+                )
+            }
+        }
+        return documents
+    } catch (e: Throwable) {
+        if (logEvents) {
+            DemoLog.setSessionOutcome(DemoOutcome.FAIL, "Verification failed: ${e.message ?: e::class.simpleName}")
+        }
+        throw e
+    }
+}
+
+private class VerificationEvent(
+    val step: DemoStep,
+    val message: String,
+    val outcome: DemoOutcome? = null,
+    val details: List<String> = emptyList(),
+    val payloads: List<DemoLogPayload> = emptyList(),
+)
+
+private fun TrustPoint.describe(): String =
+    metadata.displayName ?: certificate.subject.name
+
+private suspend fun parseAndVerifyResponse(
+    now: Instant,
+    readerModel: ReaderModel,
+    documentTypeRepository: DocumentTypeRepository,
+    issuerTrustManager: TrustManager,
+    event: (build: () -> VerificationEvent) -> Unit,
+): List<ParsedMdocDocument> {
+    val encodedDeviceResponse = readerModel.result!!.encodedDeviceResponse
+    if (encodedDeviceResponse == null) {
+        event { VerificationEvent(DemoStep.RESPONSE, "No DeviceResponse to verify", DemoOutcome.FAIL) }
+        throw IllegalStateException("The wallet didn't return a response")
+    }
+    val deviceResponse = DeviceResponse.fromDataItem(Cbor.decode(encodedDeviceResponse.toByteArray()))
+    // DeviceResponse.documents throws until verify() has been called, so documents are described after.
+    event {
+        VerificationEvent(
+            DemoStep.RESPONSE,
+            "Parsed DeviceResponse",
+            if (deviceResponse.status != DeviceResponse.STATUS_OK) DemoOutcome.WARN else null,
+            buildList {
+                add("Version: ${deviceResponse.version}")
+                add("Status: ${describeDeviceResponseStatus(deviceResponse.status)}")
+                deviceResponse.documentErrors.forEach { errors ->
+                    errors.forEach { (docType, code) -> add("Document not returned: $docType (error $code)") }
+                }
+            },
+        )
+    }
+
+    val verificationChecks = listOf(
+        "Issuer signature over the MSO, using the document signer certificate in x5chain",
+        "docType in the document matches the MSO",
+        "MSO validity period covers $now",
+        "Device authentication (signature or MAC) over the SessionTranscript using the MSO's DeviceKey",
+        "Digest of every returned data element matches the MSO",
     )
+    try {
+        deviceResponse.verify(
+            sessionTranscript = Cbor.decode(readerModel.result!!.encodedSessionTranscript.toByteArray()),
+            eReaderKey = AsymmetricKey.AnonymousExplicit(
+                privateKey = readerModel.result!!.eReaderKey,
+            ),
+            atTime = now
+        )
+    } catch (e: Throwable) {
+        event {
+            VerificationEvent(
+                DemoStep.VERIFY,
+                "Response verification failed: ${e.message ?: e::class.simpleName}",
+                DemoOutcome.FAIL,
+                listOf(e.toString(), "Checks performed, in order:") + verificationChecks.map { "  $it" },
+            )
+        }
+        throw e
+    }
+    event { VerificationEvent(DemoStep.VERIFY, "Response verified", DemoOutcome.PASS, verificationChecks) }
+    event {
+        VerificationEvent(
+            DemoStep.RESPONSE,
+            "DeviceResponse contains ${deviceResponse.documents.size} document(s)",
+            if (deviceResponse.documents.isEmpty()) DemoOutcome.WARN else null,
+            buildList {
+                deviceResponse.documents.forEach { document ->
+                    add("Document: ${document.docType}")
+                    document.issuerNamespaces.data.forEach { (namespace, items) ->
+                        add("  $namespace returned: ${items.keys.joinToString(", ")}")
+                    }
+                    document.errors.forEach { (namespace, errors) ->
+                        add("  $namespace not returned: ${errors.entries.joinToString(", ") { "${it.key} (error ${it.value})" }}")
+                    }
+                }
+            },
+        )
+    }
 
     val readerDocuments = mutableListOf<ParsedMdocDocument>()
     for (document in deviceResponse.documents) {
+        event {
+            VerificationEvent(
+                DemoStep.VERIFY,
+                "MSO for ${document.docType}",
+                null,
+                listOfNotNull(
+                    "Signed ${document.mso.signedAt}",
+                    "Valid from ${document.mso.validFrom} until ${document.mso.validUntil}",
+                    document.mso.expectedUpdate?.let { "Expected update $it" },
+                    "Digest algorithm: ${document.mso.digestAlgorithm.name}",
+                    "DeviceKey: ${document.mso.deviceKey.curve.name}",
+                    "Device authentication: " + when (document.deviceAuth) {
+                        is DeviceAuth.Ecdsa -> "ECDSA signature (DeviceSignature)"
+                        is DeviceAuth.Mac -> "MAC (DeviceMac)"
+                    },
+                ),
+                listOf(DemoLogPayload.cbor("IssuerAuth (COSE_Sign1 over the MSO)", Cbor.encode(document.issuerAuth.toDataItem())))
+            )
+        }
+
         // Public certificates: logged so a missing issuer root (IACA) can be identified and added.
         Logger.i(TAG, "Issuer certificate chain for ${document.docType}:\n" +
                 document.issuerCertChain.certificates.joinToString("\n") { it.toPem() })
         val trustResult = issuerTrustManager.verify(document.issuerCertChain.certificates, now)
+        event {
+            val chainPayload = DemoLogPayload.text(
+                "Issuer certificate chain (PEM)",
+                document.issuerCertChain.certificates.joinToString("\n") { it.toPem() }
+            )
+            if (trustResult.isTrusted) {
+                VerificationEvent(
+                    DemoStep.TRUST,
+                    "Issuer trusted via ${trustResult.trustPoints[0].describe()}",
+                    DemoOutcome.PASS,
+                    document.issuerCertChain.describe() +
+                            trustResult.trustPoints.map { "Trust point: ${it.certificate.describe()}" } +
+                            (trustResult.trustChain?.describe()?.map { "Trust chain: $it" } ?: emptyList()),
+                    listOf(chainPayload)
+                )
+            } else {
+                VerificationEvent(
+                    DemoStep.TRUST,
+                    "Issuer not trusted: ${trustResult.error?.message ?: "no matching trusted issuer"}",
+                    DemoOutcome.FAIL,
+                    document.issuerCertChain.describe() + listOfNotNull(trustResult.error?.toString()),
+                    listOf(chainPayload)
+                )
+            }
+        }
         require(trustResult.isTrusted) { "Document issuer isn't trusted" }
 
         val mdocType = documentTypeRepository.getDocumentTypeForMdoc(document.docType)?.mdocDocumentType
@@ -219,6 +376,14 @@ private suspend fun parseResponse(
         )
     }
     return readerDocuments
+}
+
+private fun describeDeviceResponseStatus(status: Int): String = when (status) {
+    DeviceResponse.STATUS_OK -> "$status (OK)"
+    DeviceResponse.STATUS_GENERAL_ERROR -> "$status (general error)"
+    DeviceResponse.STATUS_CBOR_DECODING_ERROR -> "$status (CBOR decoding error)"
+    DeviceResponse.STATUS_CBOR_VALIDATION_ERROR -> "$status (CBOR validation error)"
+    else -> "$status (unknown)"
 }
 
 @Composable

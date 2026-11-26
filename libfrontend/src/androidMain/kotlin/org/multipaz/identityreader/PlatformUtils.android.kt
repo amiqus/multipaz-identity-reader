@@ -2,6 +2,7 @@ package org.multipaz.identityreader
 
 import android.content.Intent
 import android.os.Build
+import androidx.core.content.FileProvider
 import io.ktor.client.engine.HttpClientEngineFactory
 import io.ktor.client.engine.android.Android
 import kotlinx.io.bytestring.ByteString
@@ -14,6 +15,10 @@ import org.multipaz.securearea.AndroidKeystoreSecureArea
 import org.multipaz.securearea.CreateKeySettings
 import org.multipaz.securearea.KeyInfo
 import org.multipaz.util.Logger
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 private const val TAG = "Platform"
 
@@ -69,6 +74,46 @@ class AndroidPlatformUtils : PlatformUtils {
         applicationContext.startActivity(
             Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+    }
+
+    override val logDirectory: String
+        get() = File(applicationContext.filesDir, "demolog").absolutePath
+
+    override fun shareFile(fileName: String, mimeType: String, data: ByteArray) {
+        // Exports may contain personal data, so only the latest one is kept. The directory must
+        // match res/xml/demolog_file_paths.xml in the app.
+        val directory = File(applicationContext.cacheDir, "exports")
+        directory.deleteRecursively()
+        directory.mkdirs()
+        val file = File(directory, fileName)
+        file.writeBytes(data)
+        val uri = FileProvider.getUriForFile(
+            applicationContext,
+            "${applicationContext.packageName}.demolog.fileprovider",
+            file
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, fileName)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        applicationContext.startActivity(
+            Intent.createChooser(intent, null)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        )
+    }
+
+    override fun zip(files: Map<String, ByteArray>): ByteArray {
+        val output = ByteArrayOutputStream()
+        ZipOutputStream(output).use { zip ->
+            for ((path, data) in files) {
+                zip.putNextEntry(ZipEntry(path))
+                zip.write(data)
+                zip.closeEntry()
+            }
+        }
+        return output.toByteArray()
     }
 }
 

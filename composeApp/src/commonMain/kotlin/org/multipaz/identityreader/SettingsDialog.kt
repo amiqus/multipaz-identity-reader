@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.NoAccounts
 import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,6 +77,7 @@ fun SettingsDialog(
     onSignInToGoogleClicked: () -> Unit,
     onReaderIdentityClicked: () -> Unit,
     onTrustedIssuersClicked: () -> Unit,
+    onLogClicked: () -> Unit,
     onDeveloperSettingsClicked: () -> Unit,
 ) {
     val signedIn = settingsModel.signedIn.collectAsState()
@@ -184,6 +186,14 @@ fun SettingsDialog(
                             Icon(Icons.Outlined.AccountBalance, contentDescription = null)
                         },
                         onClick = { onTrustedIssuersClicked() }
+                    )
+
+                    SettingsItem(
+                        text = { Text("Interaction log") },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Terminal, contentDescription = null)
+                        },
+                        onClick = { onLogClicked() }
                     )
 
                     if (settingsModel.devMode.value) {

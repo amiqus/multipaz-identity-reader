@@ -197,6 +197,22 @@ enum class ReaderQuery(
                 )
             }
         }
+        val description = describeDeviceRequest(deviceRequest)
+        val authMethod = settingsModel.readerAuthMethod.value
+        val missingReaderAuth = !description.readerAuthenticated && authMethod != ReaderAuthMethod.NO_READER_AUTH
+        DemoLog.guarded("request event") {
+            DemoLog.event(
+                step = DemoStep.REQUEST,
+                direction = DemoDirection.LOCAL,
+                message = "Built DeviceRequest for \"$displayName\" (${deviceRequest.size} bytes)",
+                outcome = if (missingReaderAuth) DemoOutcome.WARN else null,
+                details = listOfNotNull(
+                    "Reader authentication method: $authMethod",
+                    if (missingReaderAuth) "No reader key available, so the request is not signed" else null,
+                ) + description.details,
+                payloads = listOf(DemoLogPayload.cbor("DeviceRequest", deviceRequest))
+            )
+        }
         return ByteString(deviceRequest)
     }
 }

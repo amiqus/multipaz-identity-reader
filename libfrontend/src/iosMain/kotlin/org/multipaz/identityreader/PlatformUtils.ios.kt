@@ -30,6 +30,16 @@ class IOSPlatformUtils: PlatformUtils {
         // TODO: use UIActivityViewController. The device reader key is Android-only for now.
         Logger.w("Platform", "Sharing isn't supported on iOS yet")
     }
+
+    override val logDirectory: String? = null
+
+    override fun shareFile(fileName: String, mimeType: String, data: ByteArray) {
+        Logger.w("Platform", "Sharing isn't supported on iOS yet")
+    }
+
+    override fun zip(files: Map<String, ByteArray>): ByteArray {
+        throw NotImplementedError("Zip isn't supported on iOS yet")
+    }
 }
 
 actual fun getPlatformUtils(): PlatformUtils = IOSPlatformUtils()

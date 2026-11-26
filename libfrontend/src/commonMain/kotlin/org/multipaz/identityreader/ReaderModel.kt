@@ -144,6 +144,8 @@ class ReaderModel {
         existingTransport: MdocTransport? = null
     ) {
         check(_state.value == State.IDLE)
+        val engagementType = engagementTypeFor(handover)
+        DemoLog.startSession(engagementType.description)
         this.encodedDeviceEngagement = encodedDeviceEngagement
         this.handover = handover
         this.existingTransport = existingTransport
@@ -152,8 +154,27 @@ class ReaderModel {
         deviceEngagement = DeviceEngagement.fromDataItem(
             Cbor.decode(encodedDeviceEngagement.toByteArray())
         )
+        DemoLog.guarded("engagement event") {
+            DemoLog.event(
+                step = DemoStep.ENGAGEMENT,
+                direction = DemoDirection.FROM_WALLET,
+                message = "Received DeviceEngagement via ${engagementType.description}",
+                details = deviceEngagement!!.describe(),
+                payloads = listOfNotNull(
+                    DemoLogPayload.cbor("DeviceEngagement", encodedDeviceEngagement.toByteArray()),
+                    if (handover != Simple.NULL) DemoLogPayload.cbor("Handover", Cbor.encode(handover)) else null,
+                )
+            )
+        }
         _eReaderKey = Crypto.createEcPrivateKey(deviceEngagement!!.eDeviceKey.curve)
         val encodedEReaderKey = Cbor.encode(_eReaderKey!!.publicKey.toCoseKey().toDataItem())
+        DemoLog.event(
+            step = DemoStep.SESSION,
+            direction = DemoDirection.LOCAL,
+            message = "Generated ephemeral reader key EReaderKey (${_eReaderKey!!.curve.name})",
+            details = listOf("New for this session, used with EDeviceKey to derive the session keys"),
+            payloads = listOf(DemoLogPayload.cbor("EReaderKey (public COSE_Key)", encodedEReaderKey))
+        )
         _encodedSessionTranscript = ByteString(
             Cbor.encode(
                 buildCborArray {
@@ -164,6 +185,16 @@ class ReaderModel {
             )
         )
         Logger.iCbor(TAG, "sessionTranscript", _encodedSessionTranscript!!.toByteArray())
+        DemoLog.event(
+            step = DemoStep.SESSION,
+            direction = DemoDirection.LOCAL,
+            message = "Built SessionTranscript",
+            details = listOf(
+                "[DeviceEngagementBytes, EReaderKeyBytes, Handover]",
+                "Reader authentication and device authentication both sign over this"
+            ),
+            payloads = listOf(DemoLogPayload.cbor("SessionTranscript", _encodedSessionTranscript!!.toByteArray()))
+        )
     }
 
     fun setDeviceRequest(encodedDeviceRequest: ByteString) {
@@ -181,7 +212,7 @@ class ReaderModel {
         check(_state.value == State.WAITING_FOR_START)
         _scope = scope
         _state.value = State.CONNECTING
-        println("Starting...")
+        Logger.d(TAG, "Starting reader flow")
         _scope!!.launch {
             val (result, error) = try {
                 Pair(
@@ -194,9 +225,28 @@ class ReaderModel {
                 )
             } catch (e: Throwable) {
                 Logger.w(TAG, "Error doing reader flow", e)
+                if (e is CancellationException) {
+                    DemoLog.event(
+                        step = DemoStep.TRANSPORT,
+                        direction = DemoDirection.LOCAL,
+                        message = "Transfer cancelled",
+                        outcome = DemoOutcome.WARN,
+                        details = listOf(e.toString()),
+                    )
+                    DemoLog.setSessionOutcome(DemoOutcome.WARN, "Transfer cancelled before completing")
+                } else {
+                    DemoLog.event(
+                        step = DemoStep.TRANSPORT,
+                        direction = DemoDirection.LOCAL,
+                        message = "Reader flow failed: ${e.message ?: e::class.simpleName}",
+                        outcome = DemoOutcome.FAIL,
+                        details = listOf(e.toString()),
+                    )
+                    DemoLog.setSessionOutcome(DemoOutcome.FAIL, "Transfer failed: ${e.message ?: e::class.simpleName}")
+                }
                 Pair(null, e)
             }
-            println("Setting state to COMPLETED")
+            Logger.d(TAG, "Setting state to COMPLETED")
             _result = result
             _error = error
             deviceEngagement = null
@@ -222,11 +272,16 @@ class ReaderModel {
         handover: DataItem,
         existingTransport: MdocTransport?
     ): ReaderModelResult {
-        println("In doReaderFlow()")
 
         val timeOfEngagementReceived = Clock.System.now()
 
         val transport = if (existingTransport != null) {
+            DemoLog.event(
+                step = DemoStep.TRANSPORT,
+                direction = DemoDirection.LOCAL,
+                message = "Using the transport set up during NFC engagement",
+                details = listOf(existingTransport.connectionMethod.toString())
+            )
             existingTransport
         } else {
             val connectionMethods = MdocConnectionMethod.disambiguate(
@@ -239,6 +294,17 @@ class ReaderModel {
                 // TODO: maybe selectConnectionMethod(connectionMethods)
                 connectionMethods[0]
             }
+            DemoLog.event(
+                step = DemoStep.TRANSPORT,
+                direction = DemoDirection.LOCAL,
+                message = "Selected connection method",
+                details = listOf(connectionMethod.toString()) +
+                        if (connectionMethods.size > 1) {
+                            listOf("Wallet offered ${connectionMethods.size} methods, using the first")
+                        } else {
+                            emptyList()
+                        }
+            )
             val transport = MdocTransportFactory.Default.createTransport(
                 connectionMethod = connectionMethod,
                 role = MdocRole.MDOC_READER,
@@ -249,15 +315,7 @@ class ReaderModel {
         }
 
         Logger.iCbor(TAG, "handover", Cbor.encode(handover))
-        val engagementType = if (handover == Simple.NULL) {
-            EngagementType.QR
-        } else {
-            if (handover.asArray[1] == Simple.NULL) {
-                EngagementType.NFC_STATIC_HANDOVER
-            } else {
-                EngagementType.NFC_NEGOTIATED_HANDOVER
-            }
-        }
+        val engagementType = engagementTypeFor(handover)
 
         val sessionEncryption = SessionEncryption(
             MdocRole.MDOC_READER,
@@ -266,22 +324,55 @@ class ReaderModel {
             encodedSessionTranscript.toByteArray(),
         )
 
-        println("OK, with transport: $transport")
+        Logger.d(TAG, "Using transport: $transport")
         val connectionMethod = transport.connectionMethod
+        val transportStateLogger = _scope!!.launch {
+            transport.state.collect { transportState ->
+                DemoLog.event(
+                    step = DemoStep.TRANSPORT,
+                    direction = DemoDirection.LOCAL,
+                    message = "Transport state: $transportState",
+                    outcome = if (transportState == MdocTransport.State.FAILED) DemoOutcome.FAIL else null,
+                )
+            }
+        }
         try {
             transport.open(deviceEngagement!!.eDeviceKey)
-            transport.sendMessage(
-                sessionEncryption.encryptMessage(
-                    messagePlaintext = encodedDeviceRequest!!.toByteArray(),
-                    statusCode = null
-                )
+            DemoLog.event(
+                step = DemoStep.TRANSPORT,
+                direction = DemoDirection.LOCAL,
+                message = "Transport open",
+                details = listOfNotNull(transport.scanningTime?.let { "Scanning took $it" })
             )
+            val sessionEstablishment = sessionEncryption.encryptMessage(
+                messagePlaintext = encodedDeviceRequest!!.toByteArray(),
+                statusCode = null
+            )
+            transport.sendMessage(sessionEstablishment)
             val timeOfFirstMessageSent = Clock.System.now()
+            DemoLog.event(
+                step = DemoStep.TRANSPORT,
+                direction = DemoDirection.TO_WALLET,
+                message = "Sent SessionEstablishment (${sessionEstablishment.size} bytes)",
+                details = listOf(
+                    "eReaderKey plus the DeviceRequest encrypted with SKReader (AES-256-GCM)",
+                    "${timeOfFirstMessageSent - timeOfEngagementReceived} after engagement was received"
+                ),
+                payloads = listOf(DemoLogPayload.cbor("SessionEstablishment", sessionEstablishment))
+            )
 
             val sessionData = transport.waitForMessage()
             val timeOfFirstResponseReceived = Clock.System.now()
             if (sessionData.isEmpty()) {
                 // TODO: showToast("Received transport-specific session termination message from holder")
+                DemoLog.event(
+                    step = DemoStep.TRANSPORT,
+                    direction = DemoDirection.FROM_WALLET,
+                    message = "Wallet ended the session without a response",
+                    outcome = DemoOutcome.WARN,
+                    details = listOf("Transport-specific session termination, e.g. the holder declined")
+                )
+                DemoLog.setSessionOutcome(DemoOutcome.FAIL, "Wallet ended the session without a response")
                 transport.close()
                 return ReaderModelResult(
                     status = null,
@@ -296,13 +387,47 @@ class ReaderModel {
                 )
             }
 
+            DemoLog.event(
+                step = DemoStep.TRANSPORT,
+                direction = DemoDirection.FROM_WALLET,
+                message = "Received SessionData (${sessionData.size} bytes)",
+                details = listOf("${timeOfFirstResponseReceived - timeOfFirstMessageSent} after the request was sent"),
+                payloads = listOf(DemoLogPayload.cbor("SessionData (encrypted)", sessionData))
+            )
             val (message, status) = sessionEncryption.decryptMessage(sessionData)
             Logger.i(TAG, "Holder sent ${message?.size} bytes status $status")
+            val statusIsError = status == Constants.SESSION_DATA_STATUS_ERROR_SESSION_ENCRYPTION ||
+                    status == Constants.SESSION_DATA_STATUS_ERROR_CBOR_DECODING
+            DemoLog.event(
+                step = DemoStep.RESPONSE,
+                direction = DemoDirection.LOCAL,
+                message = if (message != null) {
+                    "Decrypted DeviceResponse (${message.size} bytes) with SKDevice"
+                } else {
+                    "SessionData contained no DeviceResponse"
+                },
+                outcome = if (message == null || statusIsError) DemoOutcome.FAIL else null,
+                details = listOf("SessionData status: ${describeSessionStatus(status)}"),
+                payloads = listOfNotNull(message?.let {
+                    DemoLogPayload.cbor("DeviceResponse", it, containsPersonalData = true)
+                })
+            )
+            if (message == null) {
+                DemoLog.setSessionOutcome(
+                    DemoOutcome.FAIL,
+                    "No DeviceResponse, status ${describeSessionStatus(status)}"
+                )
+            }
             if (status == Constants.SESSION_DATA_STATUS_SESSION_TERMINATION) {
                 //showToast("Received session termination message from holder")
                 Logger.i(
                     TAG, "Holder indicated they closed the connection. " +
                             "Closing and ending reader loop"
+                )
+                DemoLog.event(
+                    step = DemoStep.TRANSPORT,
+                    direction = DemoDirection.FROM_WALLET,
+                    message = "Wallet signalled session termination (status 20)",
                 )
                 transport.close()
             } else {
@@ -312,6 +437,11 @@ class ReaderModel {
                             "ending reader loop"
                 )
                 transport.sendMessage(SessionEncryption.encodeStatus(Constants.SESSION_DATA_STATUS_SESSION_TERMINATION))
+                DemoLog.event(
+                    step = DemoStep.TRANSPORT,
+                    direction = DemoDirection.TO_WALLET,
+                    message = "Sent session termination (status 20)",
+                )
                 transport.close()
             }
             return ReaderModelResult(
@@ -332,6 +462,23 @@ class ReaderModel {
             }
              */
             transport.close()
+            transportStateLogger.cancel()
+            DemoLog.event(
+                step = DemoStep.TRANSPORT,
+                direction = DemoDirection.LOCAL,
+                message = "Transport closed",
+            )
         }
     }
+
+    private fun engagementTypeFor(handover: DataItem): EngagementType =
+        if (handover == Simple.NULL) {
+            EngagementType.QR
+        } else {
+            if (handover.asArray[1] == Simple.NULL) {
+                EngagementType.NFC_STATIC_HANDOVER
+            } else {
+                EngagementType.NFC_NEGOTIATED_HANDOVER
+            }
+        }
 }

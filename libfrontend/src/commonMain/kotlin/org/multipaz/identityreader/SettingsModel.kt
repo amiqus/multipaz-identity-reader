@@ -157,6 +157,8 @@ class SettingsModel private constructor(
         bind(bleL2capEnabled, "bleL2capEnabled", false)
         bind(bleL2capInEngagementEnabled, "bleL2capInEngagementEnabled", true)
         bind(insertNfcPollingFrames, "insertNfcPollingFrames", true)
+        bind(showLogPanel, "showLogPanel", true)
+        bind(verboseLogging, "verboseLogging", true)
     }
 
     val logTransactions = MutableStateFlow<Boolean>(false)
@@ -177,4 +179,6 @@ class SettingsModel private constructor(
     val bleL2capEnabled = MutableStateFlow<Boolean>(false)
     val bleL2capInEngagementEnabled = MutableStateFlow<Boolean>(false)
     val insertNfcPollingFrames = MutableStateFlow<Boolean>(true)
+    val showLogPanel = MutableStateFlow<Boolean>(true)
+    val verboseLogging = MutableStateFlow<Boolean>(true)
 }

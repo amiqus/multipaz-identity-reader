@@ -22,6 +22,15 @@ interface PlatformUtils {
 
     /** Shares [text] using the platform's share sheet, e.g. to email it. */
     fun shareText(subject: String, text: String)
+
+    /** Directory for [DemoLog]'s run files, or `null` if logs aren't persisted on this platform. */
+    val logDirectory: String?
+
+    /** Shares [data] as a file named [fileName] using the platform's share sheet. */
+    fun shareFile(fileName: String, mimeType: String, data: ByteArray)
+
+    /** Creates a zip archive of [files], keyed by path within the archive. */
+    fun zip(files: Map<String, ByteArray>): ByteArray
 }
 
 expect fun getPlatformUtils(): PlatformUtils
