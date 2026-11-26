@@ -14,6 +14,7 @@ import org.multipaz.crypto.X500Name
 import org.multipaz.crypto.X509CertChain
 import org.multipaz.crypto.buildX509Cert
 import org.multipaz.mdoc.engagement.buildDeviceEngagement
+import org.multipaz.revocation.RevocationStatus
 import org.multipaz.util.toBase64Url
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -122,6 +123,34 @@ class DemoLogTest {
         assertFailsWith<CancellationException> {
             DemoLog.guarded("test event") { throw CancellationException("cancelled") }
         }
+    }
+
+    @Test
+    fun describesMissingRevocationStatus() {
+        val description = describeRevocationStatus(null)
+        assertEquals("No revocation status in the MSO", description.summary)
+    }
+
+    @Test
+    fun describesStatusListWithoutTheIndex() = runBlocking {
+        val key = Crypto.createEcPrivateKey(EcCurve.P256)
+        val now = Clock.System.now()
+        val signer = buildX509Cert(
+            publicKey = key.publicKey,
+            signingKey = AsymmetricKey.AnonymousExplicit(key, Algorithm.ES256),
+            serialNumber = ASN1Integer(1L),
+            subject = X500Name.fromName("CN=Status List Signer"),
+            issuer = X500Name.fromName("CN=Status List Signer"),
+            validFrom = now - 1.days,
+            validUntil = now + 1.days,
+        ) {}
+        val description = describeRevocationStatus(
+            RevocationStatus.StatusList(idx = 4242, uri = "https://issuer.example/status/1", certificate = signer)
+        )
+        assertEquals("Revocation not checked (status list)", description.summary)
+        assertContains(description.details, "List URI: https://issuer.example/status/1")
+        assertTrue(description.details.any { "CN=Status List Signer" in it })
+        assertFalse(description.details.any { "4242" in it })
     }
 
     @Test

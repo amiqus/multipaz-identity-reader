@@ -10,6 +10,7 @@ import org.multipaz.crypto.X509Cert
 import org.multipaz.crypto.X509CertChain
 import org.multipaz.mdoc.engagement.DeviceEngagement
 import org.multipaz.mdoc.request.DeviceRequest
+import org.multipaz.revocation.RevocationStatus
 import org.multipaz.util.Constants
 
 // Human-readable detail lines for DemoLog events. They describe structure, never data element values.
@@ -86,6 +87,52 @@ private fun describeParsedDeviceRequest(dataItem: DataItem): DeviceRequestDescri
         }
     }
     return DeviceRequestDescription(details, readerAuthenticated)
+}
+
+class RevocationStatusDescription(
+    val summary: String,
+    val details: List<String>,
+)
+
+/**
+ * Describes the status reference an issuer put in the MSO. Revocation isn't checked yet, so this
+ * only shows what a check would use. The list index or identifier is left out because it
+ * identifies the credential; it's in the MSO payload instead.
+ */
+fun describeRevocationStatus(status: RevocationStatus?): RevocationStatusDescription {
+    val notChecked = "Not checked: this app doesn't fetch revocation lists yet, so the document " +
+            "is accepted on its signatures and MSO validity period alone"
+    return when (status) {
+        null -> RevocationStatusDescription(
+            "No revocation status in the MSO",
+            listOf(
+                "The issuer didn't include a status reference, so a revoked document still " +
+                        "verifies until its MSO expires",
+            )
+        )
+        is RevocationStatus.StatusList -> RevocationStatusDescription(
+            "Revocation not checked (status list)",
+            listOf(
+                "Mechanism: status list (one status per credential, looked up by index)",
+                "List URI: ${status.uri}",
+                "List signer: ${status.certificate?.describe() ?: "no certificate given in the MSO"}",
+                notChecked,
+            )
+        )
+        is RevocationStatus.IdentifierList -> RevocationStatusDescription(
+            "Revocation not checked (identifier list)",
+            listOf(
+                "Mechanism: identifier list (revoked credentials listed by identifier)",
+                "List URI: ${status.uri}",
+                "List signer: ${status.certificate?.describe() ?: "no certificate given in the MSO"}",
+                notChecked,
+            )
+        )
+        is RevocationStatus.Unknown -> RevocationStatusDescription(
+            "Revocation not checked (unrecognised status format)",
+            listOf("The MSO has a status reference this app doesn't recognise", notChecked)
+        )
+    }
 }
 
 /** Describes a SessionData status code from ISO/IEC 18013-5 table 20. */

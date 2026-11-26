@@ -55,6 +55,7 @@ import org.multipaz.documenttype.knowntypes.DrivingLicense
 import org.multipaz.documenttype.knowntypes.PhotoID
 import org.multipaz.mdoc.devicesigned.DeviceAuth
 import org.multipaz.mdoc.response.DeviceResponse
+import org.multipaz.revocation.RevocationStatus
 import org.multipaz.trustmanagement.TrustManager
 import org.multipaz.trustmanagement.TrustPoint
 import org.multipaz.util.Logger
@@ -300,7 +301,14 @@ private suspend fun parseAndVerifyResponse(
                         is DeviceAuth.Mac -> "MAC (DeviceMac)"
                     },
                 ),
-                listOf(DemoLogPayload.cbor("IssuerAuth (COSE_Sign1 over the MSO)", Cbor.encode(document.issuerAuth.toDataItem())))
+                // The MSO can hold a revocation index or identifier that identifies the credential.
+                listOf(
+                    DemoLogPayload.cbor(
+                        "IssuerAuth (COSE_Sign1 over the MSO)",
+                        Cbor.encode(document.issuerAuth.toDataItem()),
+                        containsPersonalData = true
+                    )
+                )
             )
         }
 
@@ -332,6 +340,22 @@ private suspend fun parseAndVerifyResponse(
                     listOf(chainPayload)
                 )
             }
+        }
+        event {
+            val status = document.mso.revocationStatus
+            val description = describeRevocationStatus(status)
+            VerificationEvent(
+                DemoStep.REVOCATION,
+                description.summary,
+                DemoOutcome.WARN,
+                description.details + "MSO valid until ${document.mso.validUntil}",
+                listOfNotNull(
+                    status?.takeIf { it !is RevocationStatus.UnknownJson }?.let {
+                        // The index or identifier identifies this credential.
+                        DemoLogPayload.cbor("Revocation status reference", Cbor.encode(it.toDataItem()), containsPersonalData = true)
+                    }
+                )
+            )
         }
         require(trustResult.isTrusted) { "Document issuer isn't trusted" }
 

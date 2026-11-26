@@ -42,6 +42,7 @@ enum class DemoStep(val label: String) {
     RESPONSE("Response"),
     VERIFY("Verification"),
     TRUST("Issuer trust"),
+    REVOCATION("Revocation"),
 }
 
 enum class DemoDirection(val arrow: String, val label: String) {
